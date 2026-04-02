@@ -902,28 +902,28 @@ class UsageOverlay:
             bar_h = tb_h if cfg_h <= 0 else max(2, cfg_h)
             bar_y = tb_h - bar_h
             fill_w = max(1, int(tb_w * (pct / 100.0)))
-
-            # Background fill — pull back to leave room for wave fringe
             wave_amp = 8
-            if self.config["bg_enabled"] and self.bg_hwnd:
-                self.bg_win.configure(bg=self.config["bg_color"])
-                solid_w = max(1, fill_w - wave_amp)
-                position_child(self.bg_hwnd, 0, bar_y, solid_w, bar_h)
-            elif self.bg_hwnd:
-                position_child(self.bg_hwnd, 0, bar_y, 1, bar_h)
 
-            # Bubble window — full taskbar width
+            # Hide bg window — everything drawn on single bubble canvas
+            if self.bg_hwnd:
+                position_child(self.bg_hwnd, 0, 0, 1, 1)
+
+            # Set bubble canvas opacity to bg_opacity (single layer = no overlap)
             if self.bubble_hwnd:
                 position_child(self.bubble_hwnd, 0, bar_y, tb_w, bar_h)
+                opacity = self.config["bg_opacity"] if self.config["bg_enabled"] else self.config["bubble_opacity"]
+                SetLayeredWindowAttributes(
+                    self.bubble_hwnd, CHROMA_KEY_RGB, opacity, LWA_COLORKEY | LWA_ALPHA)
 
             self._wave_phase += 0.025
             self.canvas.delete("all")
             bg_color = self.config["bg_color"]
 
-            # Draw wave fringe — polygon from solid edge to wavy right edge
-            if self.config["bg_enabled"] and fill_w > wave_amp:
-                wave_start = max(0, fill_w - wave_amp)
-                pts = [(wave_start, 0)]
+            # Draw entire fill + wave as one shape on canvas
+            if self.config["bg_enabled"]:
+                # Build polygon: solid rect with wavy right edge
+                pts = [(0, 0)]  # top-left
+                # Wavy right edge, top to bottom
                 steps = max(20, bar_h * 2)
                 for i in range(steps + 1):
                     y = (i / steps) * bar_h
@@ -931,7 +931,7 @@ class UsageOverlay:
                           + math.sin(self._wave_phase + y * 0.06) * wave_amp * 0.6
                           + math.sin(self._wave_phase * 0.6 + y * 0.12) * wave_amp * 0.3)
                     pts.append((wx, y))
-                pts.append((wave_start, bar_h))
+                pts.append((0, bar_h))  # bottom-left
                 flat = [c for p in pts for c in p]
                 self.canvas.create_polygon(flat, fill=bg_color, outline="",
                                            smooth=True)
@@ -939,7 +939,7 @@ class UsageOverlay:
             for bubble in self.bubbles:
                 bubble.update(fill_w)
                 x, y, r = bubble.x, bubble.y, bubble.radius
-                if 0 <= x <= fill_w and -r <= y <= bar_h + r:
+                if 0 <= x <= fill_w + wave_amp and -r <= y <= bar_h + r:
                     self.canvas.create_oval(
                         x - r, y - r, x + r, y + r,
                         fill=bubble.color, outline="",
