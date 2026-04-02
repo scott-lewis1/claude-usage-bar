@@ -44,13 +44,13 @@ CONFIG_FILE = Path.home() / ".claude" / "usage-bar-config.json"
 DEFAULT_CONFIG = {
     "enabled": True,
     "drain_mode": False,
-    "bar_height": 4,        # px — thin strip at bottom of taskbar
+    "bar_height": 0,        # 0 = full taskbar height
     "bubble_opacity": 35,
     "bubble_count": 20,
     "bubble_speed": 0.5,
     "bg_enabled": True,
     "bg_color": "#E3713F",
-    "bg_opacity": 60,       # higher opacity is fine now — no icon tinting
+    "bg_opacity": 18,
     "test_percent": -1,     # legacy, kept for config compat
 }
 
@@ -186,31 +186,41 @@ def position_child(hwnd, x, y, w, h):
 
 class Bubble:
     def __init__(self, max_x, max_y, speed):
-        # Scale radius to bar height — tiny dots for thin bars
-        r_max = min(max_y * 0.5, 4) if max_y < 10 else 5
-        r_min = max(0.5, r_max * 0.3)
-        self.radius = random.uniform(r_min, r_max)
+        self.thin = max_y < 16  # thin bar mode
+        if self.thin:
+            r_max = min(max_y * 0.45, 3)
+            self.radius = random.uniform(max(0.5, r_max * 0.4), r_max)
+        else:
+            self.radius = random.uniform(2, 5)
         self.x = random.uniform(0, max(1, max_x))
         self.y = random.uniform(0, max(1, max_y))
-        self.speed = random.uniform(speed * 0.3, speed * 0.8)
-        self.drift_x = random.uniform(-0.3, 0.3)
+        self.speed = random.uniform(speed * 0.5, speed * 1.5)
+        self.drift_x = random.uniform(-0.15, 0.15)
         self.color = random.choice(BUBBLE_COLORS)
         self.max_y = max_y
         self.max_x = max_x
         self.phase = random.uniform(0, math.pi * 2)
-        self.osc_amp = random.uniform(0.1, 0.3)
+        self.osc_amp = random.uniform(0.2, 0.6)
 
     def update(self, fill_width):
-        # Drift horizontally (not vertically) for thin bars
-        self.phase += 0.04
-        self.x += self.drift_x + math.sin(self.phase) * self.osc_amp
-        self.y += math.cos(self.phase * 1.3) * 0.15  # gentle vertical bob
-        if self.x < -self.radius or self.x > fill_width + self.radius:
-            self.x = -self.radius if self.drift_x > 0 else fill_width + self.radius
-            self.y = random.uniform(0, max(1, self.max_y))
-            self.color = random.choice(BUBBLE_COLORS)
-            r_max = min(self.max_y * 0.5, 4) if self.max_y < 10 else 5
-            self.radius = random.uniform(max(0.5, r_max * 0.3), r_max)
+        self.phase += 0.05
+        if self.thin:
+            # Horizontal drift for thin bars
+            self.x += self.drift_x * 2 + math.sin(self.phase) * 0.3
+            self.y += math.cos(self.phase * 1.3) * 0.15
+            if self.x < -self.radius or self.x > fill_width + self.radius:
+                self.x = random.uniform(0, max(1, fill_width))
+                self.y = random.uniform(0, max(1, self.max_y))
+                self.color = random.choice(BUBBLE_COLORS)
+        else:
+            # Vertical float for full-height bars
+            self.y -= self.speed
+            self.x += self.drift_x + math.sin(self.phase) * self.osc_amp
+            if self.y < -self.radius or self.x < -self.radius or self.x > fill_width + self.radius:
+                self.y = self.max_y + self.radius
+                self.x = random.uniform(0, max(1, fill_width))
+                self.color = random.choice(BUBBLE_COLORS)
+                self.radius = random.uniform(2, 5)
 
 
 # ─── OAuth Usage Poller ──────────────────────────────────────────────
@@ -407,10 +417,11 @@ class UsageOverlay:
         left, top, right, bottom = self.taskbar_rect
         tb_w = right - left
         tb_h = bottom - top
-        bar_h = max(2, self.config.get("bar_height", 4))
-        bar_y = tb_h - bar_h  # position at bottom of taskbar
+        cfg_h = self.config.get("bar_height", 0)
+        bar_h = tb_h if cfg_h <= 0 else max(2, cfg_h)
+        bar_y = tb_h - bar_h  # 0 when full height
 
-        # ── Background window (thin strip at bottom) ──
+        # ── Background window ──
         self.bg_win = tk.Toplevel(self.root)
         self.bg_win.overrideredirect(True)
         self.bg_win.configure(bg=self.config["bg_color"])
@@ -421,7 +432,7 @@ class UsageOverlay:
             SetLayeredWindowAttributes(self.bg_hwnd, 0, self.config["bg_opacity"], LWA_ALPHA)
             position_child(self.bg_hwnd, 0, bar_y, 1, bar_h)
 
-        # ── Bubble window (same thin strip) ──
+        # ── Bubble window ──
         self.bubble_win = tk.Toplevel(self.root)
         self.bubble_win.overrideredirect(True)
         self.bubble_win.configure(bg=CHROMA_KEY)
@@ -446,7 +457,9 @@ class UsageOverlay:
             return
         left, top, right, bottom = self.taskbar_rect
         tb_w = right - left
-        bar_h = max(2, self.config.get("bar_height", 4))
+        tb_h = bottom - top
+        cfg_h = self.config.get("bar_height", 0)
+        bar_h = tb_h if cfg_h <= 0 else max(2, cfg_h)
         pct = self._get_display_percent()
         fill_w = max(1, tb_w * (pct / 100.0))
         self.bubbles = [
@@ -688,7 +701,7 @@ class UsageOverlay:
 
         win = tk.Toplevel(self.root)
         win.title("Claude Usage Bar")
-        win.geometry("330x680")
+        win.geometry("340x740")
         win.resizable(False, False)
         win.configure(bg=self._BG)
         self.settings_win = win
@@ -743,8 +756,8 @@ class UsageOverlay:
         self._make_slider(bg_card, "Opacity", self._bg_opacity_var, 5, 255,
                           self._on_bg_opacity)
 
-        self._bar_height_var = tk.IntVar(value=self.config.get("bar_height", 4))
-        self._make_slider(bg_card, "Bar height", self._bar_height_var, 2, 12,
+        self._bar_height_var = tk.IntVar(value=self.config.get("bar_height", 0))
+        self._make_slider(bg_card, "Bar height (0 = full)", self._bar_height_var, 0, 48,
                           self._on_bar_height)
 
         # ── Bubbles ──
@@ -882,22 +895,23 @@ class UsageOverlay:
             left, top, right, bottom = self.taskbar_rect
             tb_w = right - left
             tb_h = bottom - top
-            bar_h = max(2, self.config.get("bar_height", 4))
+            cfg_h = self.config.get("bar_height", 0)
+            bar_h = tb_h if cfg_h <= 0 else max(2, cfg_h)
             bar_y = tb_h - bar_h
             fill_w = max(1, int(tb_w * (pct / 100.0)))
 
-            # Background: thin strip at bottom, width = fill
+            # Background fill
             if self.config["bg_enabled"] and self.bg_hwnd:
                 self.bg_win.configure(bg=self.config["bg_color"])
                 position_child(self.bg_hwnd, 0, bar_y, fill_w, bar_h)
             elif self.bg_hwnd:
                 position_child(self.bg_hwnd, 0, bar_y, 1, bar_h)
 
-            # Bubble window: full width, thin strip at bottom
+            # Bubble window
             if self.bubble_hwnd:
                 position_child(self.bubble_hwnd, 0, bar_y, tb_w, bar_h)
 
-            # Draw bubbles (tiny dots in the thin bar)
+            # Draw bubbles
             self.canvas.delete("all")
             for bubble in self.bubbles:
                 bubble.update(fill_w)
