@@ -213,7 +213,7 @@ CREDENTIALS_FILE = Path.home() / ".claude" / ".credentials.json"
 CLAUDE_CODE_CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
 TOKEN_ENDPOINT = "https://api.anthropic.com/v1/oauth/token"
 USAGE_ENDPOINT = "https://api.anthropic.com/api/oauth/usage"
-API_POLL_INTERVAL = 60  # seconds
+API_POLL_INTERVAL = 30  # seconds — fast updates
 
 
 class OAuthPoller:
@@ -224,6 +224,7 @@ class OAuthPoller:
         self._refresh_token = None
         self._token_expires_at = 0.0
         self._rate_limit_until = 0.0
+        self._consecutive_429s = 0
         self._running = True
         self.last_usage = None
         self._load_credentials()
@@ -260,7 +261,9 @@ class OAuthPoller:
             if new_refresh:
                 self._refresh_token = new_refresh
                 self._save_credentials(data)
-            log.info("OAuth token refreshed")
+            self._consecutive_429s = 0  # reset on fresh token
+            self._rate_limit_until = 0
+            log.info("OAuth token refreshed (new token)")
             return True
         except (HTTPError, URLError, json.JSONDecodeError, KeyError) as e:
             log.warning("Token refresh failed: %s", e)
@@ -302,15 +305,24 @@ class OAuthPoller:
         }, method="GET")
         try:
             with urlopen(req, timeout=15) as resp:
+                self._consecutive_429s = 0
                 return json.loads(resp.read().decode("utf-8"))
         except HTTPError as e:
             if e.code == 401:
                 if self._refresh_access_token():
                     return self.fetch_usage()
             if e.code == 429:
-                retry_after = max(120, int(e.headers.get("retry-after", 120)))
-                log.warning("Rate limited, backing off %ds", retry_after)
-                self._rate_limit_until = time.time() + retry_after
+                self._consecutive_429s += 1
+                # Rate limits are per-token. Refresh to get a new token.
+                if self._consecutive_429s <= 2:
+                    log.info("429 — refreshing token to escape rate limit")
+                    if self._refresh_access_token():
+                        return self.fetch_usage()
+                # If refresh didn't help, exponential backoff
+                backoff = min(600, 60 * (2 ** (self._consecutive_429s - 2)))
+                log.warning("Rate limited (attempt %d), backoff %ds",
+                            self._consecutive_429s, backoff)
+                self._rate_limit_until = time.time() + backoff
                 return None
             log.warning("Usage fetch failed: %s", e)
             return None
@@ -939,7 +951,7 @@ class UsageOverlay:
         self.tray_icon.icon = self._create_tray_icon(pct if self.enabled else 0)
 
     def _poll_loop(self):
-        """Main poll loop: API every 60s, state file every 2s as fallback."""
+        """Main poll loop: API every 30s, state file every 2s as fallback."""
         api_counter = 0
         while self.running:
             # Try OAuth API every 60 seconds
