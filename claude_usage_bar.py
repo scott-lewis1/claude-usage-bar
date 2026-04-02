@@ -44,7 +44,7 @@ CONFIG_FILE = Path.home() / ".claude" / "usage-bar-config.json"
 DEFAULT_CONFIG = {
     "enabled": True,
     "drain_mode": False,
-    "bar_height": 0,        # 0 = full taskbar height
+    "bar_height": 6,        # px from bottom (0 = full taskbar height)
     "bubble_opacity": 35,
     "bubble_count": 20,
     "bubble_speed": 0.5,
@@ -178,8 +178,8 @@ def make_child_of_taskbar(tk_toplevel, taskbar_hwnd):
 SWP_NOZORDER = 0x0004
 
 def position_child(hwnd, x, y, w, h):
-    """Position a child window at the bottom of the z-order (behind icons)."""
-    SetWindowPos(hwnd, HWND_BOTTOM, x, y, w, h, SWP_NOACTIVATE | SWP_SHOWWINDOW)
+    """Position a child window without changing z-order."""
+    SetWindowPos(hwnd, 0, x, y, w, h, SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW)
 
 
 # ─── Bubble ──────────────────────────────────────────────────────────────────
