@@ -44,8 +44,8 @@ CONFIG_FILE = Path.home() / ".claude" / "usage-bar-config.json"
 DEFAULT_CONFIG = {
     "enabled": True,
     "drain_mode": False,
-    "bar_height": 6,        # px from bottom (0 = full taskbar height)
-    "bubble_opacity": 35,
+    "bar_height": 14,       # px from bottom (0 = full taskbar height)
+    "bubble_opacity": 80,
     "bubble_count": 20,
     "bubble_speed": 0.5,
     "bg_enabled": True,
@@ -186,10 +186,10 @@ def position_child(hwnd, x, y, w, h):
 
 class Bubble:
     def __init__(self, max_x, max_y, speed):
-        self.thin = max_y < 16  # thin bar mode
+        self.thin = max_y < 30  # thin bar mode
         if self.thin:
-            r_max = min(max_y * 0.45, 3)
-            self.radius = random.uniform(max(0.5, r_max * 0.4), r_max)
+            r_max = max_y * 0.35
+            self.radius = random.uniform(max(1, r_max * 0.4), max(1.5, r_max))
         else:
             self.radius = random.uniform(2, 5)
         self.x = random.uniform(0, max(1, max_x))
