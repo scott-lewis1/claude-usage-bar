@@ -404,6 +404,7 @@ class UsageOverlay:
         self.bubbles = []
         self.settings_win = None
         self.oauth_poller = OAuthPoller()
+        self._wave_phase = 0.0
         self._setup()
         self._setup_tray()
         self._spawn_bubbles()
@@ -900,10 +901,12 @@ class UsageOverlay:
             bar_y = tb_h - bar_h
             fill_w = max(1, int(tb_w * (pct / 100.0)))
 
-            # Background fill
+            # Background fill — pull back a few px so wave edge is visible
+            wave_amp = 6  # px of wave undulation
             if self.config["bg_enabled"] and self.bg_hwnd:
                 self.bg_win.configure(bg=self.config["bg_color"])
-                position_child(self.bg_hwnd, 0, bar_y, fill_w, bar_h)
+                solid_w = max(1, fill_w - wave_amp * 2)
+                position_child(self.bg_hwnd, 0, bar_y, solid_w, bar_h)
             elif self.bg_hwnd:
                 position_child(self.bg_hwnd, 0, bar_y, 1, bar_h)
 
@@ -911,8 +914,35 @@ class UsageOverlay:
             if self.bubble_hwnd:
                 position_child(self.bubble_hwnd, 0, bar_y, tb_w, bar_h)
 
-            # Draw bubbles
+            # Advance wave phase
+            self._wave_phase += 0.08
+
+            # Draw wavy edge + bubbles on canvas
             self.canvas.delete("all")
+            bg_color = self.config["bg_color"]
+
+            # Draw liquid wave edge polygon
+            if self.config["bg_enabled"] and fill_w > wave_amp * 2:
+                wave_x = fill_w - wave_amp * 2  # where wave starts
+                pts = []
+                # Left edge (straight)
+                pts.append((wave_x, 0))
+                # Right edge (wavy) — top to bottom
+                steps = max(8, bar_h // 2)
+                for i in range(steps + 1):
+                    y = (i / steps) * bar_h
+                    # Composite wave: main sine + smaller faster sine
+                    wx = (wave_x + wave_amp
+                          + math.sin(self._wave_phase + y * 0.15) * wave_amp
+                          + math.sin(self._wave_phase * 1.7 + y * 0.3) * (wave_amp * 0.3))
+                    pts.append((wx, y))
+                # Close polygon back along bottom-left
+                pts.append((wave_x, bar_h))
+                if len(pts) >= 3:
+                    flat = [c for p in pts for c in p]
+                    self.canvas.create_polygon(flat, fill=bg_color, outline="",
+                                               smooth=True)
+
             for bubble in self.bubbles:
                 bubble.update(fill_w)
                 x, y, r = bubble.x, bubble.y, bubble.radius
