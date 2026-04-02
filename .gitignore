@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Claude Code local config & credentials (NEVER commit)
+.claude/
+
+# User-specific config and state (written to ~/.claude/ at runtime)
+usage-bar-state.json
+usage-bar-config.json
+usage-bar-debug.json
+usage-bar.log
+usage-poller.log
+.credentials.json
+
+# Windows
+Thumbs.db
+Desktop.ini
+
+# IDE
+.vscode/
+.idea/
