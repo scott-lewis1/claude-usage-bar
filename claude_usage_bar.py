@@ -205,7 +205,6 @@ class Bubble:
     def update(self, fill_width):
         self.phase += 0.05
         if self.thin:
-            # Horizontal drift for thin bars
             self.x += self.drift_x * 2 + math.sin(self.phase) * 0.3
             self.y += math.cos(self.phase * 1.3) * 0.15
             if self.x < -self.radius or self.x > fill_width + self.radius:
@@ -213,12 +212,15 @@ class Bubble:
                 self.y = random.uniform(0, max(1, self.max_y))
                 self.color = random.choice(BUBBLE_COLORS)
         else:
-            # Float rightward for full-height bars
+            # Float rightward — gentle vertical wobble, no despawn on y
             self.x += self.speed
-            self.y += self.drift_x + math.sin(self.phase) * self.osc_amp
-            if self.x > fill_width + self.radius or self.y < -self.radius or self.y > self.max_y + self.radius:
+            self.y += math.sin(self.phase) * 0.2  # gentle bob only
+            # Clamp y to stay in bounds instead of despawning
+            self.y = max(self.radius, min(self.max_y - self.radius, self.y))
+            # Only respawn when exiting right edge
+            if self.x > fill_width + self.radius:
                 self.x = -self.radius
-                self.y = random.uniform(0, max(1, self.max_y))
+                self.y = random.uniform(self.radius, max(self.radius + 1, self.max_y - self.radius))
                 self.color = random.choice(BUBBLE_COLORS)
                 self.radius = random.uniform(2, 5)
 
@@ -901,39 +903,38 @@ class UsageOverlay:
             bar_y = tb_h - bar_h
             fill_w = max(1, int(tb_w * (pct / 100.0)))
 
-            # Background fill — full width, wave is carved out on bubble canvas
-            wave_amp = 3  # px — gentle undulation
+            # Background fill — pull back to leave room for wave fringe
+            wave_amp = 8
             if self.config["bg_enabled"] and self.bg_hwnd:
                 self.bg_win.configure(bg=self.config["bg_color"])
-                position_child(self.bg_hwnd, 0, bar_y, fill_w, bar_h)
+                solid_w = max(1, fill_w - wave_amp)
+                position_child(self.bg_hwnd, 0, bar_y, solid_w, bar_h)
             elif self.bg_hwnd:
                 position_child(self.bg_hwnd, 0, bar_y, 1, bar_h)
 
-            # Bubble window
+            # Bubble window — full taskbar width
             if self.bubble_hwnd:
                 position_child(self.bubble_hwnd, 0, bar_y, tb_w, bar_h)
 
-            # Advance wave phase (slow, smooth)
-            self._wave_phase += 0.03
-
-            # Draw on canvas: wave mask to carve the bg edge + bubbles
+            self._wave_phase += 0.025
             self.canvas.delete("all")
+            bg_color = self.config["bg_color"]
 
-            # Draw a chroma-key rectangle over the area past the wave edge
-            # to "erase" the bg fill there, creating a soft wavy boundary.
-            if self.config["bg_enabled"] and fill_w > 2:
-                steps = max(12, bar_h)
-                for i in range(steps):
+            # Draw wave fringe — polygon from solid edge to wavy right edge
+            if self.config["bg_enabled"] and fill_w > wave_amp:
+                wave_start = max(0, fill_w - wave_amp)
+                pts = [(wave_start, 0)]
+                steps = max(20, bar_h * 2)
+                for i in range(steps + 1):
                     y = (i / steps) * bar_h
-                    # Smooth composite sine wave
                     wx = (fill_w
-                          + math.sin(self._wave_phase + y * 0.08) * wave_amp
-                          + math.sin(self._wave_phase * 0.7 + y * 0.14) * (wave_amp * 0.4))
-                    row_h = max(1, bar_h / steps + 1)
-                    # Erase everything to the right of the wave edge
-                    self.canvas.create_rectangle(
-                        wx, y, fill_w + wave_amp + 2, y + row_h,
-                        fill=CHROMA_KEY, outline="")
+                          + math.sin(self._wave_phase + y * 0.06) * wave_amp * 0.6
+                          + math.sin(self._wave_phase * 0.6 + y * 0.12) * wave_amp * 0.3)
+                    pts.append((wx, y))
+                pts.append((wave_start, bar_h))
+                flat = [c for p in pts for c in p]
+                self.canvas.create_polygon(flat, fill=bg_color, outline="",
+                                           smooth=True)
 
             for bubble in self.bubbles:
                 bubble.update(fill_w)
