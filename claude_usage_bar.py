@@ -178,8 +178,8 @@ def make_child_of_taskbar(tk_toplevel, taskbar_hwnd):
 SWP_NOZORDER = 0x0004
 
 def position_child(hwnd, x, y, w, h):
-    """Position a child window without changing z-order."""
-    SetWindowPos(hwnd, 0, x, y, w, h, SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW)
+    """Position a child window at the bottom of the z-order (behind icons)."""
+    SetWindowPos(hwnd, HWND_BOTTOM, x, y, w, h, SWP_NOACTIVATE | SWP_SHOWWINDOW)
 
 
 # ─── Bubble ──────────────────────────────────────────────────────────────────
@@ -921,20 +921,25 @@ class UsageOverlay:
 
             # Draw entire fill + wave as one shape on canvas
             if self.config["bg_enabled"]:
-                # Build polygon: solid rect with wavy right edge
-                pts = [(0, 0)]  # top-left
-                # Wavy right edge, top to bottom
+                # Solid rectangle up to near the wave edge
+                solid_end = max(0, fill_w - wave_amp)
+                if solid_end > 0:
+                    self.canvas.create_rectangle(
+                        0, 0, solid_end, bar_h,
+                        fill=bg_color, outline="")
+
+                # Wavy right edge polygon (no smooth — avoids tkinter bulge)
+                pts = [(solid_end, 0)]
                 steps = max(20, bar_h * 2)
                 for i in range(steps + 1):
                     y = (i / steps) * bar_h
                     wx = (fill_w
-                          + math.sin(self._wave_phase + y * 0.06) * wave_amp * 0.6
-                          + math.sin(self._wave_phase * 0.6 + y * 0.12) * wave_amp * 0.3)
+                          + math.sin(self._wave_phase + y * 0.06) * wave_amp * 0.5
+                          + math.sin(self._wave_phase * 0.6 + y * 0.12) * wave_amp * 0.25)
                     pts.append((wx, y))
-                pts.append((0, bar_h))  # bottom-left
+                pts.append((solid_end, bar_h))
                 flat = [c for p in pts for c in p]
-                self.canvas.create_polygon(flat, fill=bg_color, outline="",
-                                           smooth=True)
+                self.canvas.create_polygon(flat, fill=bg_color, outline="")
 
             for bubble in self.bubbles:
                 bubble.update(fill_w)
